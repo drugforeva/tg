@@ -1,0 +1,12 @@
+# docker compose up -d --build   — запуск
+# docker compose logs -f         — логи
+services:
+  giftbot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - giftbot-data:/data
+
+volumes:
+  giftbot-data:

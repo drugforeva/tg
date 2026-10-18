@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Редактор подписки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --text: var(--tg-theme-text-color, #0b0b0b);
+    --hint: var(--tg-theme-hint-color, #7c7c80);
+    --link: var(--tg-theme-link-color, #2a78d6);
+    --button: var(--tg-theme-button-color, #2a78d6);
+    --button-text: var(--tg-theme-button-text-color, #ffffff);
+    --line: color-mix(in srgb, var(--hint) 25%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--tg-theme-bg-color, #1a1a19);
+      --bg2: var(--tg-theme-secondary-bg-color, #2a2a28);
+      --text: var(--tg-theme-text-color, #f0efec);
+      --hint: var(--tg-theme-hint-color, #a3a29b);
+      --link: var(--tg-theme-link-color, #3987e5);
+      --button: var(--tg-theme-button-color, #3987e5);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px 16px 96px; background: var(--bg2); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  section { background: var(--bg); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); margin: 0 0 8px; font-weight: 600; }
+  label.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  label.row:first-of-type { border-top: 0; }
+  label.row span { flex: 1; }
+  .field { display: block; padding: 8px 0; border-top: 1px solid var(--line); }
+  .field:first-of-type { border-top: 0; }
+  .field small { display: block; color: var(--hint); font-size: 12px; margin-top: 2px; }
+  input[type=text], input[type=number], input[type=search], select {
+    width: 100%; margin-top: 4px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg2); color: var(--text); font: inherit;
+  }
+  input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--button); flex: none; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .grid3 label { font-size: 13px; color: var(--hint); }
+  .list { max-height: 320px; overflow-y: auto; margin-top: 8px; }
+  .list label { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+  .seg { display: flex; background: var(--bg2); border-radius: 8px; padding: 2px; margin-top: 4px; }
+  .seg button { flex: 1; border: 0; background: transparent; color: var(--text); padding: 7px; border-radius: 6px; font: inherit; }
+  .seg button.on { background: var(--bg); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 600; }
+  .muted { color: var(--hint); font-size: 13px; }
+  #fallback-save {
+    position: fixed; left: 16px; right: 16px; bottom: 16px; padding: 14px; border: 0; border-radius: 12px;
+    background: var(--button); color: var(--button-text); font: 600 16px/1 inherit; display: none;
+  }
+  #error { color: #d03b3b; font-size: 14px; margin: 8px 0; display: none; }
+</style>
+</head>
+<body>
+<h1 id="title">Подписка</h1>
+<div id="error"></div>
+
+<section>
+  <h2>Основное</h2>
+  <label class="field">Название<input type="text" id="name" maxlength="40"></label>
+  <label class="row"><span>🆕 Улучшения</span><input type="checkbox" data-event="upgrade"></label>
+  <label class="row"><span>🏷 Новые лоты на продаже</span><input type="checkbox" data-event="listing"></label>
+</section>
+
+<section>
+  <h2>Коллекции</h2>
+  <div class="seg" id="col-mode">
+    <button type="button" data-mode="collections" class="on">Только эти</button>
+    <button type="button" data-mode="exclude_collections">Кроме этих</button>
+  </div>
+  <input type="search" id="col-search" placeholder="Поиск коллекции">
+  <p class="muted" id="col-summary"></p>
+  <div class="list" id="col-list"></div>
+</section>
+
+<section>
+  <h2>Атрибуты</h2>
+  <p class="muted">Через запятую, регистр не важен, * — любой текст (например *Pepe*).</p>
+  <label class="field">🧩 Модели<input type="text" data-list="models"></label>
+  <label class="field">🎨 Фоны<input type="text" data-list="backdrops"></label>
+  <label class="field">🔣 Узоры<input type="text" data-list="symbols"></label>
+  <label class="field">🚫 Кроме моделей<input type="text" data-list="exclude_models"></label>
+  <label class="field">🚫 Кроме фонов<input type="text" data-list="exclude_backdrops"></label>
+  <label class="field">🚫 Кроме узоров<input type="text" data-list="exclude_symbols"></label>
+</section>
+
+<section>
+  <h2>Редкость</h2>
+  <div class="grid3">
+    <label>Модель<select data-int="max_model_rarity"></select></label>
+    <label>Фон<select data-int="max_backdrop_rarity"></select></label>
+    <label>Узор<select data-int="max_symbol_rarity"></select></label>
+  </div>
+  <label class="field">💎 Сочетание модель + фон + узор
+    <select data-int="min_one_in">
+      <option value="">Любое</option>
+      <option value="1000000">реже 1 из 1 млн</option>
+      <option value="10000000">реже 1 из 10 млн</option>
+      <option value="50000000">реже 1 из 50 млн</option>
+      <option value="200000000">реже 1 из 200 млн</option>
+    </select>
+  </label>
+</section>
+
+<section>
+  <h2>Номер</h2>
+  <label class="field">Не больше<input type="number" inputmode="numeric" min="1" data-int="max_num" placeholder="любой"></label>
+  <label class="field">Свои номера и диапазоны<input type="text" data-list="numbers" placeholder="1, 69, 777, 1000-1100"></label>
+  <label class="row"><span>Только красивые (≤100, 777, 2500, 12321, 1234…)</span><input type="checkbox" data-bool="pretty_num"></label>
+</section>
+
+<section>
+  <h2>Цена и люди</h2>
+  <label class="row"><span>Только выставленные на продажу</span><input type="checkbox" data-bool="on_sale"></label>
+  <label class="field">💰 Цена не выше, ⭐<input type="number" inputmode="numeric" min="1" data-int="max_price" placeholder="любая"></label>
+  <label class="field">📉 Дешевле флора минимум на
+    <select data-int="min_discount">
+      <option value="">любая цена</option>
+      <option value="5">5%</option><option value="10">10%</option><option value="15">15%</option>
+      <option value="20">20%</option><option value="30">30%</option><option value="50">50%</option>
+    </select>
+  </label>
+  <label class="row"><span>Только владельцы с @username</span><input type="checkbox" data-bool="with_username"></label>
+  <label class="field">👤 Люди (@username или id)<input type="text" data-list="owners" placeholder="@durov, 123456"></label>
+</section>
+
+<button id="fallback-save" type="button">Сохранить</button>
+
+<script>
+(async () => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+  const showError = (text) => { const e = $("#error"); e.textContent = text; e.style.display = "block"; };
+
+  // Данные приходят во фрагменте ссылки: base64url(zlib(JSON)).
+  async function decode(hash) {
+    const b64 = hash.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(atob(b64 + "===".slice((b64.length + 3) % 4)), (c) => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+    return JSON.parse(await new Response(stream).text());
+  }
+
+  let data;
+  try {
+    data = await decode(location.hash.slice(1));
+  } catch (e) {
+    showError("Откройте редактор кнопкой из бота.");
+    return;
+  }
+  const f = data.filters || {};
+  const collections = data.collections || [];
+  $("#title").textContent = "📌 " + (data.name || "Подписка");
+  $("#name").value = data.name || "";
+
+  // Редкость: одинаковые варианты для трёх атрибутов (промилле).
+  const rarities = [["", "любая"], ["50", "≤ 5%"], ["20", "≤ 2%"], ["10", "≤ 1%"], ["5", "≤ 0.5%"], ["2", "≤ 0.2%"]];
+  for (const select of $$(".grid3 select")) {
+    for (const [value, label] of rarities) select.add(new Option(label, value));
+  }
+
+  for (const el of $$("[data-event]")) el.checked = (f.events || ["upgrade"]).includes(el.dataset.event);
+  for (const el of $$("[data-list]")) el.value = (f[el.dataset.list] || []).join(", ");
+  for (const el of $$("[data-int]")) el.value = f[el.dataset.int] ?? "";
+  for (const el of $$("[data-bool]")) el.checked = !!f[el.dataset.bool];
+
+  // Коллекции: один список с поиском, режим «только эти» / «кроме этих».
+  const chosen = { collections: new Set(f.collections || []), exclude_collections: new Set(f.exclude_collections || []) };
+  let mode = "collections";
+  function renderCollections() {
+    const q = $("#col-search").value.trim().toLowerCase();
+    const list = $("#col-list");
+    list.textContent = "";
+    const set = chosen[mode];
+    const titles = collections.length ? collections : Array.from(new Set([...chosen.collections, ...chosen.exclude_collections]));
+    for (const title of titles.filter((t) => t.toLowerCase().includes(q))) {
+      const label = document.createElement("label");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = set.has(title);
+      box.addEventListener("change", () => { box.checked ? set.add(title) : set.delete(title); summary(); });
+      label.append(box, document.createTextNode(title));
+      list.append(label);
+    }
+    if (!titles.length) list.innerHTML = '<p class="muted">Список коллекций недоступен — выберите их кнопками в боте.</p>';
+  }
+  function summary() {
+    const inc = chosen.collections.size, exc = chosen.exclude_collections.size;
+    $("#col-summary").textContent = (inc ? `Только: ${inc}` : "Все коллекции") + (exc ? ` · кроме ${exc}` : "");
+  }
+  for (const button of $$("#col-mode button")) {
+    button.addEventListener("click", () => {
+      mode = button.dataset.mode;
+      $$("#col-mode button").forEach((b) => b.classList.toggle("on", b === button));
+      renderCollections();
+    });
+  }
+  $("#col-search").addEventListener("input", renderCollections);
+  renderCollections();
+  summary();
+
+  function collect() {
+    const out = { events: $$("[data-event]").filter((e) => e.checked).map((e) => e.dataset.event) };
+    if (!out.events.length) out.events = ["upgrade"];
+    out.collections = Array.from(chosen.collections);
+    out.exclude_collections = Array.from(chosen.exclude_collections);
+    for (const el of $$("[data-list]")) {
+      let items = el.value.split(",").map((s) => s.trim()).filter(Boolean);
+      if (el.dataset.list === "owners") items = items.map((s) => s.replace(/^@/, ""));
+      out[el.dataset.list] = items;
+    }
+    for (const el of $$("[data-int]")) out[el.dataset.int] = el.value === "" ? null : parseInt(el.value, 10) || null;
+    for (const el of $$("[data-bool]")) out[el.dataset.bool] = el.checked;
+    return { id: data.id, name: $("#name").value.trim(), filters: out };
+  }
+
+  function save() {
+    const payload = JSON.stringify(collect());
+    if (new Blob([payload]).size > 4096) {
+      showError("Слишком много значений — Telegram принимает до 4 КБ. Уберите часть коллекций или названий.");
+      return;
+    }
+    if (tg && tg.sendData) tg.sendData(payload);
+    else window.lastPayload = payload;  // открыт вне Telegram (проверка)
+  }
+
+  if (tg && tg.MainButton) {
+    tg.ready();
+    tg.expand();
+    tg.MainButton.setText("Сохранить");
+    tg.MainButton.onClick(save);
+    tg.MainButton.show();
+  } else {
+    $("#fallback-save").style.display = "block";
+    $("#fallback-save").addEventListener("click", save);
+  }
+})();
+</script>
+</body>
+</html>

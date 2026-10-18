@@ -62,6 +62,10 @@ jobs:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           ADMINS: ${{ secrets.ADMINS }}
           SLUG_OVERRIDES: ${{ vars.SLUG_OVERRIDES }}
+          WEBAPP_URL: ${{ vars.WEBAPP_URL }}
+          TIMEZONE: ${{ vars.TIMEZONE }}
+          PREMIUM_PRICE: ${{ vars.PREMIUM_PRICE }}
+          PREMIUM_DAYS: ${{ vars.PREMIUM_DAYS }}
           RUN_SECONDS: "20700"
         run: python -m giftbot
 

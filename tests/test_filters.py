@@ -1,7 +1,7 @@
 from giftbot.filters import fmt_one_in, is_pretty_number, matches, name_matches
 from giftbot.models import Filters, Upgrade
+from giftbot.parsing import title_to_slug
 from giftbot.render import upgrade_card, upgrade_line
-from giftbot.watcher import title_to_slug
 
 
 def make(**kw):
@@ -94,3 +94,64 @@ def test_render_escapes_and_shows_everything():
     assert "@ivan" in card and "Petya" in card and "12 000 ⭐ / 2.5 TON" in card
     assert "$45.20" in card and "крафт" in card and "Основная" in card
     assert "1 из 1.25 млн" in upgrade_line(u)
+
+
+def test_new_filters():
+    from giftbot.filters import number_matches, parse_numbers
+
+    u = make(owner_id=42, sender_id=7, sender_username="petya")
+    assert parse_numbers("1, 69 777;1000-1100, abc, 5—9") == ["1", "69", "777", "1000-1100", "5-9"]
+    assert number_matches(1050, ["1000-1100"]) and number_matches(69, ["69"]) and not number_matches(70, ["69"])
+    assert matches(Filters(numbers=["1234"]), u) and not matches(Filters(numbers=["1-100"]), u)
+    assert matches(Filters(owners=["@IVAN"]), u) and matches(Filters(owners=["petya"]), u)
+    assert matches(Filters(owners=["42"]), u) and not matches(Filters(owners=["someone"]), u)
+    assert not matches(Filters(exclude_models=["gold"]), u) and matches(Filters(exclude_models=["silver"]), u)
+    assert not matches(Filters(exclude_symbols=["st*"]), u)
+    assert not matches(Filters(events=["listing"]), u)
+    listing = make(event="listing", resale_stars=700, floor_stars=1000)
+    assert listing.discount == 30
+    assert matches(Filters(events=["listing"], min_discount=30), listing)
+    assert not matches(Filters(events=["listing"], min_discount=31), listing)
+    assert not matches(Filters(min_discount=5), make(resale_stars=700))  # флор неизвестен
+
+
+def test_sanitize_untrusted_filters():
+    f = Filters.sanitize(
+        {
+            "events": ["listing", "evil"],
+            "collections": ["A", 5, ""],
+            "max_num": "100",
+            "max_model_rarity": 5000,
+            "min_discount": -3,
+            "pretty_num": "yes",
+            "unknown": 1,
+        }
+    )
+    assert f.events == ["listing"] and f.collections == ["A", "5"] and f.max_num == 100
+    assert f.max_model_rarity is None and f.min_discount is None and f.pretty_num is True
+    assert Filters.sanitize("garbage") == Filters()
+
+
+def test_parse_slug():
+    from giftbot.parsing import parse_slug
+
+    assert parse_slug("https://t.me/nft/PlushPepe-123") == "PlushPepe-123"
+    assert parse_slug("смотри t.me/nft/DurovsCap-5 круто") == "DurovsCap-5"
+    assert parse_slug("PlushPepe-7") == "PlushPepe-7"
+    assert parse_slug("просто текст") is None
+
+
+def test_listing_card():
+    from giftbot.render import listing_card
+
+    card = listing_card(make(event="listing", resale_stars=6000, floor_stars=9000), ["Снайпер"])
+    assert "выставлен на продажу" in card and "6 000 ⭐" in card and "−33% от флора (9 000 ⭐)" in card
+    assert "Продавец: @ivan" in card and "Снайпер" in card
+
+
+def test_chart_renders_png():
+    from giftbot.charts import collection_chart
+
+    png = collection_chart("Plush Pepe", [(0, 5), (3600, 9)], [(0, 1000), (600, 1200)], "Europe/Moscow")
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert collection_chart("x", [], [(0, None)], "UTC") is None

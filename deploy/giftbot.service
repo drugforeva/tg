@@ -1,0 +1,20 @@
+# systemd-сервис для VPS: бот работает постоянно и перезапускается после сбоев и перезагрузки.
+#   sudo cp deploy/giftbot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now giftbot
+#   journalctl -u giftbot -f   # логи
+[Unit]
+Description=Gift Upgrades Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Поменяйте пользователя и путь на свои
+User=giftbot
+WorkingDirectory=/opt/giftbot
+ExecStart=/opt/giftbot/.venv/bin/python -m giftbot
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

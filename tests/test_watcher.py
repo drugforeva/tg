@@ -1,6 +1,7 @@
 from conftest import FakeClient
 
-from giftbot.watcher import RateLimiter, Watcher
+from giftbot.pool import RateLimiter
+from giftbot.watcher import Watcher
 
 
 async def make_watcher(db, client, sink):
@@ -71,7 +72,7 @@ async def test_attributes_and_restart(db, fast_config):
     got, client = [], FakeClient()
     w, st = await make_watcher(db, client, got)
     await w.check_collection(st)
-    from giftbot.watcher import parse_attributes
+    from giftbot.parsing import parse_attributes
 
     resp = await client(__import__("telethon").tl.functions.payments.GetStarGiftUpgradeAttributesRequest(gift_id=1))
     await db.save_attributes(1, parse_attributes(resp.attributes))

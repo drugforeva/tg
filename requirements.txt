@@ -2,3 +2,5 @@ aiogram==3.31.0
 Telethon==1.45.0
 aiosqlite==0.22.1
 python-dotenv==1.2.4
+matplotlib==3.11.2
+tzdata==2026.5
