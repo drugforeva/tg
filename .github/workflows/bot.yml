@@ -1,0 +1,61 @@
+# Запуск бота на GitHub Actions. Один запуск живёт ~5 ч 45 мин, затем сохраняет базу
+# и сам запускает следующий. Расписание — запасной перезапуск, если цепочка оборвалась.
+name: bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+concurrency:
+  group: bot
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: giftbot.db
+          key: giftbot-db-${{ github.run_id }}
+          restore-keys: giftbot-db-
+
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          ADMINS: ${{ secrets.ADMINS }}
+          SLUG_OVERRIDES: ${{ vars.SLUG_OVERRIDES }}
+          RUN_SECONDS: "20700"
+        run: python -m giftbot
+
+      - name: Save database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: giftbot.db
+          key: giftbot-db-${{ github.run_id }}
+
+      - name: Start next run
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run bot.yml --ref "${{ github.ref_name }}"

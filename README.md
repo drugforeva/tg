@@ -54,3 +54,16 @@ python -m giftbot           # запуск бота
 ```bash
 pip install pytest && python -m pytest -q
 ```
+
+## Запуск на GitHub Actions
+
+Workflow `.github/workflows/bot.yml` держит бота запущенным: каждый запуск работает ~5 ч 45 мин,
+сохраняет базу в кэш Actions и сам запускает следующий. Между запусками бывает пауза в
+пару минут; пропущенные улучшения бот догонит после старта.
+
+1. Локально выполните `python -m giftbot.login` и скопируйте напечатанный `SESSION_STRING`.
+2. В репозитории: **Settings → Secrets and variables → Actions → New repository secret**,
+   добавьте `BOT_TOKEN`, `API_ID`, `API_HASH`, `SESSION_STRING` (и по желанию `ADMINS`).
+3. **Actions → bot → Run workflow**.
+
+Учтите: GitHub не рассчитан на постоянные сервисы в Actions, и правила это формально запрещают.

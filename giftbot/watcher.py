@@ -179,13 +179,10 @@ class Watcher:
         if issued <= last_num:
             return 0
 
-        start = last_num + 1
-        if issued - last_num > MAX_FETCH_PER_PASS:
-            log.info("%s: пропуск %d номеров (слишком большой разрыв)", title, issued - last_num - MAX_FETCH_PER_PASS)
-            start = issued - MAX_FETCH_PER_PASS + 1
-
+        # Большой отрыв догоняем порциями за несколько проходов, ничего не пропуская.
+        end = min(issued, last_num + MAX_FETCH_PER_PASS)
         found = 0
-        for num in range(start, issued + 1):
+        for num in range(last_num + 1, end + 1):
             resp = await self.fetch(f"{slug}-{num}")
             if resp is None or not isinstance(resp.gift, types.StarGiftUnique):
                 # Номер ещё не доступен — попробуем в следующем проходе.

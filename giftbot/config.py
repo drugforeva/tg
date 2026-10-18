@@ -21,6 +21,10 @@ class Config:
     api_id: int = int(os.getenv("API_ID", "0") or 0)
     api_hash: str = os.getenv("API_HASH", "")
     session: str = os.getenv("SESSION", "watcher")
+    # Сессия строкой (для GitHub Actions); если задана, файл сессии не нужен
+    session_string: str = os.getenv("SESSION_STRING", "")
+    # Через сколько секунд бот сам завершится (0 = работать бесконечно)
+    run_seconds: float = float(os.getenv("RUN_SECONDS", "0") or 0)
     db_path: str = os.getenv("DB_PATH", "giftbot.db")
     poll_interval: float = float(os.getenv("POLL_INTERVAL", "15"))
     request_delay: float = float(os.getenv("REQUEST_DELAY", "0.35"))

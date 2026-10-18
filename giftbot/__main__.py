@@ -7,6 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 
 from . import bot as bot_module
 from .config import config
@@ -22,7 +23,8 @@ async def main() -> None:
     db = Database(config.db_path)
     await db.connect()
 
-    client = TelegramClient(config.session, config.api_id, config.api_hash)
+    session = StringSession(config.session_string) if config.session_string else config.session
+    client = TelegramClient(session, config.api_id, config.api_hash)
     await client.connect()
     if not await client.is_user_authorized():
         sys.exit("Аккаунт-наблюдатель не авторизован. Выполните: python -m giftbot.login")
@@ -39,6 +41,13 @@ async def main() -> None:
 
     watcher = Watcher(client, db, bot_module.Notifier(bot, db))
     watcher_task = asyncio.create_task(watcher.run())
+    if config.run_seconds:
+        async def stop_later() -> None:
+            await asyncio.sleep(config.run_seconds)
+            logging.info("Истекло RUN_SECONDS, завершаемся")
+            await dp.stop_polling()
+
+        asyncio.create_task(stop_later())
     try:
         await dp.start_polling(bot)
     finally:
