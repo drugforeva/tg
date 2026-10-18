@@ -4,3 +4,5 @@ __pycache__/
 *.session-journal
 *.db
 .env
+.pytest_cache/
+.ruff_cache/

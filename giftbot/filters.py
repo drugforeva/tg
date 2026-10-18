@@ -1,14 +1,16 @@
+from fnmatch import fnmatchcase
+
 from .models import Filters, Upgrade
 
 
 def is_pretty_number(num: int) -> bool:
-    """Красивые номера: до 100, круглые (1000, 2500), повторы (777, 4444), зеркальные (12321)."""
+    """Красивые номера: до 100, повторы (777), круглые (2500), зеркальные (12321), лесенка (1234)."""
     s = str(num)
     if num <= 100:
         return True
     if len(set(s)) == 1:
         return True
-    if s.rstrip("0") and len(s) - len(s.rstrip("0")) >= 2:
+    if len(s) - len(s.rstrip("0")) >= 2:
         return True
     if len(s) >= 4 and s == s[::-1]:
         return True
@@ -17,13 +19,14 @@ def is_pretty_number(num: int) -> bool:
     return False
 
 
-def _match_names(value: str | None, needles: list[str]) -> bool:
-    if not needles:
+def name_matches(value: str | None, patterns: list[str]) -> bool:
+    """Точное совпадение без учёта регистра; * — любой текст (например *Pepe*)."""
+    if not patterns:
         return True
     if not value:
         return False
-    low = value.lower()
-    return any(n.lower() in low for n in needles)
+    v = value.casefold()
+    return any(fnmatchcase(v, p.casefold()) for p in patterns)
 
 
 def _rarity_ok(value: int | None, limit: int | None) -> bool:
@@ -35,11 +38,13 @@ def _rarity_ok(value: int | None, limit: int | None) -> bool:
 def matches(f: Filters, u: Upgrade) -> bool:
     if f.collections and u.collection not in f.collections:
         return False
-    if not _match_names(u.model, f.models):
+    if u.collection in f.exclude_collections:
         return False
-    if not _match_names(u.backdrop, f.backdrops):
+    if not name_matches(u.model, f.models):
         return False
-    if not _match_names(u.symbol, f.symbols):
+    if not name_matches(u.backdrop, f.backdrops):
+        return False
+    if not name_matches(u.symbol, f.symbols):
         return False
     if not _rarity_ok(u.model_rarity, f.max_model_rarity):
         return False
@@ -47,13 +52,17 @@ def matches(f: Filters, u: Upgrade) -> bool:
         return False
     if not _rarity_ok(u.symbol_rarity, f.max_symbol_rarity):
         return False
+    if f.min_one_in and (u.one_in or 0) < f.min_one_in:
+        return False
     if f.max_num is not None and u.num > f.max_num:
         return False
     if f.pretty_num and not is_pretty_number(u.num):
         return False
     if f.with_username and not u.owner_username:
         return False
-    if f.on_sale and not u.resale_stars:
+    if (f.on_sale or f.max_price) and not (u.resale_stars or u.resale_ton):
+        return False
+    if f.max_price and (not u.resale_stars or u.resale_stars > f.max_price):
         return False
     return True
 
@@ -64,21 +73,39 @@ def fmt_permille(p: int | None) -> str:
     return f"{p / 10:g}%"
 
 
-def describe(f: Filters) -> str:
-    def lst(values: list[str]) -> str:
-        return ", ".join(values) if values else "любые"
+def fmt_one_in(n: int | None) -> str:
+    if not n:
+        return "?"
+    if n >= 1_000_000:
+        return f"1 из {n / 1_000_000:.3g} млн"
+    if n >= 1_000:
+        return f"1 из {n / 1_000:.3g} тыс."
+    return f"1 из {n}"
 
-    rows = [
-        f"🎁 Коллекции: {lst(f.collections) if f.collections else 'все'}",
-        f"🧩 Модель: {lst(f.models)}"
-        + (f" (≤ {fmt_permille(f.max_model_rarity)})" if f.max_model_rarity else ""),
-        f"🎨 Фон: {lst(f.backdrops)}"
-        + (f" (≤ {fmt_permille(f.max_backdrop_rarity)})" if f.max_backdrop_rarity else ""),
-        f"🔣 Узор: {lst(f.symbols)}"
-        + (f" (≤ {fmt_permille(f.max_symbol_rarity)})" if f.max_symbol_rarity else ""),
-        f"🔢 Номер: {'≤ ' + str(f.max_num) if f.max_num else 'любой'}"
-        + (", только красивые" if f.pretty_num else ""),
-        f"👤 Только владельцы с @username: {'да' if f.with_username else 'нет'}",
-        f"💰 Только выставленные на продажу: {'да' if f.on_sale else 'нет'}",
+
+def describe(f: Filters) -> str:
+    def lst(values: list[str], empty: str = "любые") -> str:
+        return ", ".join(values) if values else empty
+
+    def rar(limit: int | None) -> str:
+        return f" (≤ {fmt_permille(limit)})" if limit else ""
+
+    rows = [f"🎁 Коллекции: {lst(f.collections, 'все')}"]
+    if f.exclude_collections:
+        rows.append(f"🚫 Кроме: {lst(f.exclude_collections)}")
+    rows += [
+        f"🧩 Модель: {lst(f.models)}{rar(f.max_model_rarity)}",
+        f"🎨 Фон: {lst(f.backdrops)}{rar(f.max_backdrop_rarity)}",
+        f"🔣 Узор: {lst(f.symbols)}{rar(f.max_symbol_rarity)}",
     ]
+    if f.min_one_in:
+        rows.append(f"💎 Сочетание: не чаще {fmt_one_in(f.min_one_in)}")
+    num = f"≤ {f.max_num}" if f.max_num else "любой"
+    rows.append(f"🔢 Номер: {num}{', только красивые' if f.pretty_num else ''}")
+    if f.with_username:
+        rows.append("👤 Только владельцы с @username")
+    if f.max_price:
+        rows.append(f"💰 На продаже до {f.max_price} ⭐")
+    elif f.on_sale:
+        rows.append("💰 Только выставленные на продажу")
     return "\n".join(rows)

@@ -1,0 +1,6 @@
+.venv
+.git
+*.db
+*.session
+.env
+tests
