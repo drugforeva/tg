@@ -115,6 +115,9 @@ async def on_gift_link(message: Message, db: Database, app: App) -> None:
     slug = parse_slug(message.text)
     if not slug:
         return
+    if not getattr(app.pool, "ready", True):
+        await message.answer("Нет подключённых аккаунтов-наблюдателей — админ может добавить их в /accounts.")
+        return
     resp = await fetch_unique(app.watcher.call, slug)
     if resp is None:
         await message.answer(f"Не нашёл подарок {esc(slug)}.")

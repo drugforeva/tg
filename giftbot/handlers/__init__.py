@@ -2,10 +2,11 @@
 
 from aiogram import Dispatcher
 
-from . import admin, channels, info, inline, menu, premium, subscription, watch, webapp
+from . import accounts, admin, channels, info, inline, menu, premium, subscription, watch, webapp
 
 ROUTERS = [
     menu.router,
+    accounts.router,
     subscription.router,
     info.router,
     watch.router,

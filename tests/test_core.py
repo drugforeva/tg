@@ -74,3 +74,15 @@ async def test_market_needed_follows_subscriptions(db, fast_config):
     market._needed = (float("-inf"), set())
     assert await market.needed() == {1, 2}
     assert market.floor_of(1) == 9000 and time.time()
+
+
+async def test_pool_waits_for_first_account():
+    import asyncio
+
+    pool = ClientPool([], rate=1000, wait_for_accounts=True)
+    task = asyncio.create_task(pool(object()))
+    await asyncio.sleep(0.05)
+    assert not task.done()  # ждёт, пока админ подключит аккаунт
+    pool.add(Account("new"), "new", key="db:1")
+    assert await asyncio.wait_for(task, 1) == "new"
+    assert pool.remove("db:1") and not pool.ready

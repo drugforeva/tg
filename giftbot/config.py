@@ -34,11 +34,18 @@ def _sessions(raw: str) -> tuple[str, ...]:
     return tuple(s for s in re.split(r"[\s,]+", raw) if s)
 
 
+# Публичные ключи официального Telegram Desktop.
+DESKTOP_API_ID = 2040
+DESKTOP_API_HASH = "b18441a1ff607e10a989891a5462e627"
+
+
 @dataclass(frozen=True)
 class Config:
     bot_token: str = _str("BOT_TOKEN")
-    api_id: int = _int("API_ID", 0)
-    api_hash: str = _str("API_HASH")
+    # Свои api_id/api_hash с my.telegram.org необязательны: без них используются публичные
+    # ключи Telegram Desktop. Аккаунты-наблюдатели подключаются прямо в боте (/accounts).
+    api_id: int = _int("API_ID", DESKTOP_API_ID)
+    api_hash: str = _str("API_HASH", DESKTOP_API_HASH)
     session: str = _str("SESSION", "watcher")
     # Сессии строками (для GitHub Actions); если заданы, файл сессии не нужен
     session_strings: tuple[str, ...] = field(default_factory=lambda: _sessions(_str("SESSION_STRING", "")))

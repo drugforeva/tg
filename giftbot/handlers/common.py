@@ -1,7 +1,7 @@
 """Общие помощники интерфейса: контекст приложения, лимиты премиума, вывод меню."""
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aiogram import Bot
 from aiogram.enums import ChatType
@@ -27,6 +27,8 @@ class App:
     market: object = None
     tracker: object = None
     pool: object = None
+    client_factory: object = None  # создаёт клиент Telethon по строке сессии (подмена в тестах)
+    logins: dict = field(default_factory=dict)  # незавершённые входы в аккаунты: user_id -> LoginState
 
 
 class Edit(StatesGroup):

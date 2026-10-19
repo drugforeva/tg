@@ -49,7 +49,8 @@ HELP = (
     "/daily — ежедневная сводка\n"
     "/stats — активность коллекций\n"
     "/premium — премиум\n"
-    "/pause, /resume — пауза уведомлений\n\n"
+    "/pause, /resume — пауза уведомлений\n"
+    "/accounts — аккаунты-наблюдатели (для админа)\n\n"
     "Пришлите ссылку вида t.me/nft/PlushPepe-123 — покажу всё о подарке.\n"
     "В любом чате можно набрать <code>@имя_бота pepe</code> и поделиться находкой."
 )
@@ -134,6 +135,8 @@ async def menu_view(db: Database, chat_id: int) -> tuple[str, InlineKeyboardMark
     )
     if premium_enabled():
         kb.row(InlineKeyboardButton(text="⭐ Премиум", callback_data="premium"))
+    if chat_id in config.admins:
+        kb.row(InlineKeyboardButton(text="🛠 Аккаунты-наблюдатели", callback_data="acc:list"))
     return "\n".join(lines), kb.as_markup()
 
 

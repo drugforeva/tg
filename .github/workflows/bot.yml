@@ -24,10 +24,9 @@ jobs:
         id: check
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          SESSION_STRING: ${{ secrets.SESSION_STRING }}
         run: |
-          if [ -z "$BOT_TOKEN" ] || [ -z "$SESSION_STRING" ]; then
-            echo "::warning::Секреты BOT_TOKEN / SESSION_STRING не заданы — бот не запущен. См. README."
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "::warning::Секрет BOT_TOKEN не задан — бот не запущен. См. README."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"

@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 import sys
 
 from aiogram import Bot, Dispatcher
@@ -41,20 +42,31 @@ DESCRIPTION = (
 )
 
 
-async def connect_clients() -> list[TelegramClient]:
-    """Аккаунты-наблюдатели: строки из SESSION_STRING или файлы из SESSION (через запятую)."""
-    sessions = [StringSession(s) for s in config.session_strings] or [
-        name.strip() for name in config.session.split(",") if name.strip()
-    ]
+async def connect_clients(db: Database) -> list[tuple[object, str, str]]:
+    """Аккаунты-наблюдатели: подключённые в боте (/accounts) и из настроек (SESSION_STRING / SESSION)."""
+    sources: list[tuple[object, str, str]] = []  # (сессия, имя, ключ)
+    for row in await db.accounts():
+        sources.append((StringSession(row["session"]), f"#{row['id']} {row['name'] or ''}".strip(), f"db:{row['id']}"))
+    for i, s in enumerate(config.session_strings, 1):
+        sources.append((StringSession(s), f"env#{i}", f"env:{i}"))
+    if not config.session_strings:
+        for name in (n.strip() for n in config.session.split(",")):
+            if name and os.path.exists(f"{name}.session"):
+                sources.append((name, name, f"file:{name}"))
     clients = []
-    for i, session in enumerate(sessions, 1):
+    for session, name, key in sources:
         # flood_sleep_threshold=0: все FloodWait обрабатывает пул аккаунтов.
         client = TelegramClient(session, config.api_id, config.api_hash, flood_sleep_threshold=0)
-        await client.connect()
-        if await client.is_user_authorized():
-            clients.append(client)
+        try:
+            await client.connect()
+            authorized = await client.is_user_authorized()
+        except Exception as e:
+            log.error("Аккаунт %s: не удалось подключиться: %s", name, e)
+            continue
+        if authorized:
+            clients.append((client, name, key))
         else:
-            log.error("Аккаунт-наблюдатель #%d не авторизован, пропускаю", i)
+            log.error("Аккаунт %s не авторизован, пропускаю", name)
             await client.disconnect()
     return clients
 
@@ -62,15 +74,13 @@ async def connect_clients() -> list[TelegramClient]:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("aiogram.event").setLevel(logging.WARNING)
-    if not (config.bot_token and config.api_id and config.api_hash):
-        sys.exit("Заполните BOT_TOKEN, API_ID и API_HASH в .env (см. .env.example)")
+    if not config.bot_token:
+        sys.exit("Заполните BOT_TOKEN в .env (см. .env.example)")
 
     db = Database(config.db_path)
     await db.connect()
 
-    clients = await connect_clients()
-    if not clients:
-        sys.exit("Нет авторизованных аккаунтов-наблюдателей. Выполните: python -m giftbot.login")
+    clients = await connect_clients(db)
     log.info("Аккаунтов-наблюдателей: %d", len(clients))
 
     bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -81,7 +91,15 @@ async def main() -> None:
         await bot.set_my_short_description(DESCRIPTION[:120])
 
     delivery = Delivery(bot, db)
-    pool = ClientPool(clients, config.requests_per_second, on_alert=delivery.alert_admins)
+
+    async def on_dead(member) -> None:
+        if member.key.startswith("db:"):
+            await db.delete_account(int(member.key[3:]))
+
+    # Без аккаунтов бот всё равно запускается: запросы ждут, пока админ подключит аккаунт в /accounts.
+    pool = ClientPool([], config.requests_per_second, delivery.alert_admins, on_dead, wait_for_accounts=True)
+    for client, name, key in clients:
+        pool.add(client, name, key)
     market = Market(pool, db, delivery.on_event)
     watcher = Watcher(pool, db, delivery.on_event, delivery.alert_admins, floor_of=market.floor_of)
     tracker = Tracker(pool, db, delivery.notify)
@@ -97,6 +115,13 @@ async def main() -> None:
         asyncio.create_task(delivery.run()),
         asyncio.create_task(Scheduler(db, delivery).run()),
     ]
+    if not clients:
+        log.warning("Нет аккаунтов-наблюдателей: подключите их в боте командой /accounts")
+        with contextlib.suppress(Exception):
+            await delivery.alert_admins(
+                "👋 Бот запущен, но аккаунтов-наблюдателей пока нет — без них он не видит улучшений и маркета.\n"
+                "Подключите аккаунт по номеру телефона: /accounts"
+            )
     if config.run_seconds:
 
         async def stop_later() -> None:
@@ -113,8 +138,9 @@ async def main() -> None:
         await asyncio.gather(*tasks, return_exceptions=True)
         with contextlib.suppress(Exception):
             await delivery.flush_all()  # не теряем то, что успели найти
-        for client in clients:
-            await client.disconnect()
+        for member in list(pool.members):
+            with contextlib.suppress(Exception):
+                await member.client.disconnect()
         await bot.session.close()
         await db.close()
 

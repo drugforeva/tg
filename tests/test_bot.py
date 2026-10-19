@@ -449,3 +449,107 @@ async def test_legacy_filters_migrated(tmp_path):
     await db.connect()  # повторная миграция не воскрешает удалённую подписку
     assert await db.subscriptions(5) == []
     await db.close()
+
+
+class FakeLoginClient(FakeClient):
+    """Клиент Telethon для входа: код 12345, пароль 2FA — «secret» (если задан)."""
+
+    def __init__(self, password=None):
+        super().__init__()
+        self.password, self.authorized, self.logged_out = password, False, False
+
+    async def connect(self):
+        pass
+
+    async def disconnect(self):
+        pass
+
+    async def log_out(self):
+        self.logged_out = True
+
+    async def send_code_request(self, phone):
+        from types import SimpleNamespace
+
+        self.phone = phone
+        return SimpleNamespace(phone_code_hash="hash")
+
+    async def sign_in(self, phone=None, code=None, phone_code_hash=None, password=None):
+        from telethon import errors
+
+        if password is not None:
+            if password != self.password:
+                raise errors.PasswordHashInvalidError(request=None)
+        else:
+            if code != "12345" or phone_code_hash != "hash":
+                raise errors.PhoneCodeInvalidError(request=None)
+            if self.password:
+                raise errors.SessionPasswordNeededError(request=None)
+        self.authorized = True
+
+    async def get_me(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id=555, first_name="Watcher", last_name=None)
+
+    @property
+    def session(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(save=lambda: "SESSION-STRING")
+
+
+async def login_flow(h, client, code="12345"):
+    from giftbot.pool import ClientPool
+
+    h.app.pool = ClientPool([], 1000, wait_for_accounts=True)
+    h.app.client_factory = lambda: client
+    await h.send("/accounts")
+    assert "Аккаунты-наблюдатели" in h.last().text
+    await h.click("acc:add")
+    await h.send("+7 (999) 123-45-67")
+    assert client.phone == "+79991234567" and "Введите его кнопками" in h.last().text
+    for digit in code:
+        await h.click(f"acc:k:{digit}")
+    assert " ".join(code) in h.last().text
+    await h.click("acc:k:ok")
+
+
+async def test_account_login_by_phone_and_code(h):
+    client = FakeLoginClient()
+    await login_flow(h, client, code="12399")  # сначала ошибся
+    assert any("Неверный код" in a for a in h.alerts())
+    for digit in "12345":
+        await h.click(f"acc:k:{digit}")
+    await h.click("acc:k:ok")
+    assert client.authorized and "подключён и уже работает" in h.last().text
+    rows = await h.db.accounts()
+    assert len(rows) == 1 and rows[0]["session"] == "SESSION-STRING" and rows[0]["name"] == "Watcher"
+    assert h.app.pool.ready and h.app.pool.members[0].key == f"db:{rows[0]['id']}"
+    from telethon.tl import functions
+
+    gifts = await h.app.pool(functions.payments.GetStarGiftsRequest(hash=0))
+    assert gifts.gifts  # пул сразу пользуется новым аккаунтом
+
+    await h.click(f"acc:del:{rows[0]['id']}")
+    assert client.logged_out and not h.app.pool.ready and await h.db.accounts() == []
+
+
+async def test_account_login_with_2fa(h, bot):
+    client = FakeLoginClient(password="secret")
+    await login_flow(h, client)
+    assert "облачный пароль" in h.last().text
+    await h.send("wrong")
+    assert "Неверный пароль" in h.last().text
+    await h.send("secret")
+    assert client.authorized and len(await h.db.accounts()) == 1
+    assert len(bot.session.sent("DeleteMessage")) == 2  # оба сообщения с паролем удалены
+
+
+async def test_accounts_admin_only(h, fast_config, monkeypatch):
+    import dataclasses
+
+    cfg = dataclasses.replace(fast_config, admins=frozenset({777}))
+    monkeypatch.setattr("giftbot.handlers.accounts.config", cfg)
+    await h.send("/accounts")
+    await h.click("acc:add")
+    assert any("Только для админа" in a for a in h.alerts())

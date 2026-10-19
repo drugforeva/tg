@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS channels (
     title TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT NOT NULL,
+    name TEXT,
+    user_id INTEGER,
+    session TEXT NOT NULL,  -- строка сессии Telethon: доступ к аккаунту, не показывать
+    created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS payments (
     charge_id TEXT PRIMARY KEY,
     chat_id INTEGER NOT NULL,
@@ -274,6 +282,23 @@ class Database:
             (payment["days"] * 86400, payment["chat_id"]),
         )
         await self.conn.commit()
+
+    # --- аккаунты-наблюдатели ---
+
+    async def add_account(self, phone: str, name: str | None, user_id: int | None, session: str) -> int:
+        await self.conn.execute("DELETE FROM accounts WHERE user_id = ?", (user_id,))  # повторный вход
+        cur = await self.conn.execute(
+            "INSERT INTO accounts(phone, name, user_id, session, created_at) VALUES (?, ?, ?, ?, ?)",
+            (phone, name, user_id, session, int(time.time())),
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def accounts(self) -> list[aiosqlite.Row]:
+        return await self._all("SELECT * FROM accounts ORDER BY id")
+
+    async def delete_account(self, account_id: int) -> None:
+        await self._exec("DELETE FROM accounts WHERE id = ?", account_id)
 
     # --- подписки ---
 

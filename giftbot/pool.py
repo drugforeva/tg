@@ -67,6 +67,7 @@ class Member:
     client: object
     name: str
     limiter: RateLimiter
+    key: str = ""  # "db:<id>" — аккаунт, подключённый через бота; иначе из настроек
     requests: int = 0
     flood_waits: int = 0
 
@@ -79,19 +80,55 @@ class PoolMetrics:
 
 
 class ClientPool:
-    def __init__(self, clients: list, rate: float, on_alert: Callable[[str], Awaitable[None]] | None = None):
-        self.members = [Member(c, f"#{i + 1}", RateLimiter(rate)) for i, c in enumerate(clients)]
+    """Пул аккаунтов. Если аккаунтов нет, запросы ждут, пока админ подключит аккаунт в боте."""
+
+    def __init__(
+        self,
+        clients: list,
+        rate: float,
+        on_alert: Callable[[str], Awaitable[None]] | None = None,
+        on_dead: Callable[[Member], Awaitable[None]] | None = None,
+        wait_for_accounts: bool = False,
+    ):
+        self.rate_per_account = rate
+        self.members: list[Member] = []
         self.on_alert = on_alert
+        self.on_dead = on_dead
+        self.wait_for_accounts = wait_for_accounts
         self.metrics = PoolMetrics()
+        self._available = asyncio.Event()
+        for i, c in enumerate(clients):
+            self.add(c, f"#{i + 1}")
 
     @property
     def rate(self) -> float:
         return sum(m.limiter.rate for m in self.members)
 
+    @property
+    def ready(self) -> bool:
+        return bool(self.members)
+
+    def add(self, client, name: str, key: str = "") -> Member:
+        member = Member(client, name, RateLimiter(self.rate_per_account), key)
+        self.members.append(member)
+        self._available.set()
+        return member
+
+    def remove(self, key: str) -> Member | None:
+        member = next((m for m in self.members if m.key == key), None)
+        if member:
+            self.members.remove(member)
+            if not self.members:
+                self._available.clear()
+        return member
+
     async def __call__(self, request):
         while True:
             if not self.members:
-                raise PoolExhausted("нет рабочих аккаунтов-наблюдателей")
+                if not self.wait_for_accounts:
+                    raise PoolExhausted("нет рабочих аккаунтов-наблюдателей")
+                await self._available.wait()
+                continue
             member = min(self.members, key=lambda m: m.limiter.next_free)
             await member.limiter.wait()
             member.requests += 1
@@ -114,12 +151,16 @@ class ClientPool:
         if member not in self.members:
             return
         self.members.remove(member)
+        if not self.members:
+            self._available.clear()
         reason = type(error).__name__
         self.metrics.dead.append(f"{member.name}: {reason}")
         log.error("Аккаунт-наблюдатель %s отключён: %s", member.name, reason)
+        if self.on_dead:
+            await self.on_dead(member)
         if self.on_alert:
             left = len(self.members)
             await self.on_alert(
                 f"⛔️ Аккаунт-наблюдатель {member.name} отключён: {reason}. Осталось рабочих: {left}.\n"
-                "Создайте новую сессию (python -m giftbot.login) и обновите SESSION_STRING."
+                "Подключите аккаунт заново: /accounts"
             )
